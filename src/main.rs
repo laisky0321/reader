@@ -1,23 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
-use egui::Galley;
-use egui::text::CCursor;
-use rfd;
-use std::fs;
-use std::path::PathBuf;
-
-pub mod state;
-
 use crate::egui::text::CCursorRange;
-use crate::state::{Highlight, Hl_config, State, TextArea};
+use crate::state::{Highlight, HlConfig, State, TextArea};
 use eframe::egui;
 use egui::FontData;
 use egui::FontDefinitions;
 use egui::FontFamily;
+use egui::Galley;
+use egui::text::CCursor;
 use egui::{Rect, pos2};
+use rfd;
 use serde_json;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+pub mod state;
 
 fn get_text(cursor_range: CCursorRange, galley: &Arc<Galley>) -> String {
     let full_text = galley.text();
@@ -70,8 +70,19 @@ fn save(state: &State) {
     fs::write(&state.path.with_extension("json"), json).unwrap();
 }
 
+fn add_highlight(state: &mut State, config: HlConfig) {
+    let start = state.text_area.selected_range.primary.index;
+    let end = state.text_area.selected_range.secondary.index;
+    state
+        .text_area
+        .highlights
+        .entry(config)
+        .or_insert_with(Vec::new)
+        .push(Highlight::new(start, end));
+}
+
 // !TODO 为不同颜色的高亮进行循环mesh添加
-fn galley_paint(fragements: Vec<CCursorRange>, own_galley: &mut Galley, config: Hl_config) {
+fn galley_paint(fragements: Vec<CCursorRange>, own_galley: &mut Galley, config: HlConfig) {
     let (font_color, bg_color) = config.colors();
     for fragement in fragements {
         let [min, max] = fragement.sorted_cursors();
@@ -209,7 +220,7 @@ impl Default for MyApp {
                 text_area: TextArea {
                     popup_pos: egui::Vec2::ZERO,
                     font_size: 20.0,
-                    highlights: vec![],
+                    highlights: HashMap::from([(HlConfig::Blue, vec![])]),
                     selected_range: CCursorRange::two(CCursor::new(0), CCursor::new(0)),
                 },
             },
@@ -245,10 +256,11 @@ impl eframe::App for MyApp {
                         }
                         if !self.state.text_area.selected_range.is_empty() {
                             if *key == egui::Key::H {
-                                self.state.text_area.highlights.push(Highlight::new(
-                                    self.state.text_area.selected_range.primary.index,
-                                    self.state.text_area.selected_range.secondary.index,
-                                ));
+                                add_highlight(&mut self.state, HlConfig::Blue);
+                                return false;
+                            }
+                            if *key == egui::Key::Y {
+                                add_highlight(&mut self.state, HlConfig::Yellow);
                                 return false;
                             }
                         }
@@ -322,15 +334,18 @@ impl eframe::App for MyApp {
 
                     let galley = ui.fonts_mut(|f| f.layout_job(layout_job));
                     let mut own_galley = (*galley).clone();
-                    let mut fragements = vec![];
 
-                    for highlight in &self.state.text_area.highlights {
-                        fragements.push(egui::text::CCursorRange::two(
-                            egui::text::CCursor::new(highlight.start),
-                            egui::text::CCursor::new(highlight.end),
-                        ));
+                    //load highlight
+                    for (config, highlights) in &self.state.text_area.highlights {
+                        let mut fragements = vec![];
+                        for highlight in highlights {
+                            fragements.push(egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(highlight.start),
+                                egui::text::CCursor::new(highlight.end),
+                            ));
+                        }
+                        galley_paint(fragements, &mut own_galley, *config);
                     }
-                    galley_paint(fragements, &mut own_galley, Hl_config::Yellow);
 
                     Arc::new(own_galley)
                 })
@@ -378,10 +393,7 @@ impl eframe::App for MyApp {
                                         }
                                         if ui.button("Pastle").clicked() {}
                                         if ui.button("Highlight").clicked() {
-                                            self.state.text_area.highlights.push(Highlight::new(
-                                                cursor_range.primary.index,
-                                                cursor_range.secondary.index,
-                                            ));
+                                            add_highlight(&mut self.state, HlConfig::Blue);
                                         }
                                         if ui.button("Mark").clicked() {}
                                     });
