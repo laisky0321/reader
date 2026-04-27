@@ -52,4 +52,5 @@ pub struct State {
     pub content: String,
     pub changed: bool,
     pub text_area: TextArea,
+    pub index_pos: f32,
 }

@@ -22,7 +22,8 @@ rfd = "0.17.2"
 egui = "0.34.1"
 eframe = "0.34.1"
 epaint = "0.34.1"
-egui_extras = "0.34.1"
+egui_extras = { version = "0.34.1", features = ["image", "all_loaders"] }
+image = { version = "0.24", features = ["png", "jpeg"] }
 arboard = "3.6.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

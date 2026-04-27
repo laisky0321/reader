@@ -81,7 +81,15 @@ fn add_highlight(state: &mut State, config: HlConfig) {
         .push(Highlight::new(start, end));
 }
 
-// !TODO 为不同颜色的高亮进行循环mesh添加
+fn add_highlight_specify(state: &mut State, config: HlConfig, start: usize, end: usize) {
+    state
+        .text_area
+        .highlights
+        .entry(config)
+        .or_insert_with(Vec::new)
+        .push(Highlight::new(start, end));
+}
+
 fn galley_paint(fragements: Vec<CCursorRange>, own_galley: &mut Galley, config: HlConfig) {
     let (font_color, bg_color) = config.colors();
     for fragement in fragements {
@@ -223,6 +231,7 @@ impl Default for MyApp {
                     highlights: HashMap::from([(HlConfig::Blue, vec![])]),
                     selected_range: CCursorRange::two(CCursor::new(0), CCursor::new(0)),
                 },
+                index_pos: 0.0,
             },
         }
     }
@@ -315,13 +324,31 @@ impl eframe::App for MyApp {
                 });
             });
 
+        //side bar
+        egui::Panel::right("right panel")
+            .frame(egui::Frame::default().fill(egui::Color32::GRAY))
+            .show_inside(ui, |ui| {
+                let x = ui.max_rect().min.x;
+                let y = self.state.index_pos;
+                let size = egui::vec2(150.0, 100.0);
+                // Use rect to contain the image, which is easy to control the position.
+                let rect = egui::Rect::from_min_size(egui::pos2(x, y), size);
+                ui.put(
+                    rect,
+                    egui::Image::new(format!(
+                        "file://{}",
+                        self.state.path.with_file_name("1.png").display()
+                    )),
+                );
+            });
+
         // text area
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::GRAY))
             .show_inside(ui, |ui| {
                 let text_edit = (egui::TextEdit::multiline(&mut self.state.content)
                     .desired_width(f32::INFINITY)
-                    .desired_rows(20)
+                    .desired_rows(50)
                     .background_color(egui::Color32::WHITE))
                 .hint_text("Type something!")
                 .layouter(&mut |ui, string, wrap_width| {
@@ -351,7 +378,9 @@ impl eframe::App for MyApp {
                 })
                 .show(ui);
                 let galley = text_edit.galley;
-
+                //test
+                self.state.index_pos = galley.pos_from_cursor(CCursor::new(100)).right_top().y;
+                add_highlight_specify(&mut self.state, HlConfig::Blue, 100, 101);
                 if let Some(cursor_range) = text_edit.cursor_range {
                     if !cursor_range.is_empty() {
                         self.state.text_area.selected_range = cursor_range;
@@ -364,12 +393,11 @@ impl eframe::App for MyApp {
                                 (self.state.text_area.popup_pos + egui::vec2(-10.0, -60.0))
                                     .to_pos2(),
                             )
-                            .order(egui::Order::Foreground) // 确保在最前面
+                            .order(egui::Order::Foreground)
                             .show(ui, |ui| {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         if ui.button("Copy").clicked() {
-                                            // 4. 安全截取并返回
                                             let text = get_text(cursor_range, &galley);
                                             let mut clipboard =
                                                 arboard::Clipboard::new().expect("");
