@@ -1,0 +1,4 @@
+Hi, this is a.txt
+
+This is the newest version
+We can edit and save, meanwhile selecting in different files, and we can also adjust the text's size using shortcuts.
