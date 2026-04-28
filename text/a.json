@@ -1,14 +1,19 @@
 {
-  "Blue": [
+  "bookmarks": [
     {
-      "start": 153,
-      "end": 162
+      "index": 46,
+      "content": "this is a bookmark",
+      "y": 0.0
     }
   ],
-  "Yellow": [
+  "images": [
     {
-      "start": 124,
-      "end": 130
+      "index": 100,
+      "path": "/home/lai/nextcloud/code/rust_practice/reader/text/1.png",
+      "y": 0.0
     }
-  ]
+  ],
+  "highlights": {
+    "Blue": []
+  }
 }

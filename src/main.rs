@@ -2,7 +2,7 @@
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
 use crate::egui::text::CCursorRange;
-use crate::state::{Highlight, HlConfig, State, TextArea};
+use crate::state::{Annotation, BookMark, Highlight, HlConfig, Image, State, TextArea};
 use eframe::egui;
 use egui::FontData;
 use egui::FontDefinitions;
@@ -13,11 +13,14 @@ use egui::{Rect, pos2};
 use rfd;
 use serde_json;
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::{fs, vec};
 
 pub mod state;
+pub mod text;
+use text::TextEdit;
 
 fn get_text(cursor_range: CCursorRange, galley: &Arc<Galley>) -> String {
     let full_text = galley.text();
@@ -66,7 +69,7 @@ fn delete_selected_text(text: &mut String, range: egui::text::CCursorRange) {
 }
 
 fn save(state: &State) {
-    let json = serde_json::to_string_pretty(&state.text_area.highlights).unwrap();
+    let json = serde_json::to_string_pretty(&state.annotation).unwrap();
     fs::write(&state.path.with_extension("json"), json).unwrap();
 }
 
@@ -74,7 +77,7 @@ fn add_highlight(state: &mut State, config: HlConfig) {
     let start = state.text_area.selected_range.primary.index;
     let end = state.text_area.selected_range.secondary.index;
     state
-        .text_area
+        .annotation
         .highlights
         .entry(config)
         .or_insert_with(Vec::new)
@@ -83,7 +86,7 @@ fn add_highlight(state: &mut State, config: HlConfig) {
 
 fn add_highlight_specify(state: &mut State, config: HlConfig, start: usize, end: usize) {
     state
-        .text_area
+        .annotation
         .highlights
         .entry(config)
         .or_insert_with(Vec::new)
@@ -228,10 +231,19 @@ impl Default for MyApp {
                 text_area: TextArea {
                     popup_pos: egui::Vec2::ZERO,
                     font_size: 20.0,
-                    highlights: HashMap::from([(HlConfig::Blue, vec![])]),
                     selected_range: CCursorRange::two(CCursor::new(0), CCursor::new(0)),
                 },
-                index_pos: 0.0,
+                annotation: Annotation {
+                    bookmarks: vec![BookMark::new(30, "this is a bookmark".to_owned())],
+                    images: vec![Image::new(
+                        140,
+                        PathBuf::from_str(
+                            "/home/lai/nextcloud/code/rust_practice/reader/text/1.png",
+                        )
+                        .unwrap(),
+                    )],
+                    highlights: HashMap::from([(HlConfig::Blue, vec![])]),
+                },
             },
         }
     }
@@ -297,13 +309,11 @@ impl eframe::App for MyApp {
                             let content =
                                 fs::read_to_string(&self.state.path.with_extension("json"))
                                     .unwrap();
-                            self.state.text_area.highlights =
-                                serde_json::from_str(&content).unwrap();
+                            self.state.annotation = serde_json::from_str(&content).unwrap();
                         } else {
                             fs::write(
                                 &self.state.path.with_extension("json"),
-                                serde_json::to_string_pretty(&self.state.text_area.highlights)
-                                    .unwrap(),
+                                serde_json::to_string_pretty(&self.state.annotation).unwrap(),
                             )
                             .unwrap();
                         }
@@ -329,26 +339,34 @@ impl eframe::App for MyApp {
             .frame(egui::Frame::default().fill(egui::Color32::GRAY))
             .show_inside(ui, |ui| {
                 let x = ui.max_rect().min.x;
-                let y = self.state.index_pos;
                 let size = egui::vec2(150.0, 100.0);
+                for ele in &mut self.state.annotation.bookmarks.iter() {
+                    let text_rect = egui::Rect::from_min_size(egui::pos2(x, ele.y), size);
+                    ui.put(
+                        text_rect,
+                        TextEdit::multiline(&mut "this is bookmark".to_owned())
+                            .background_color(egui::Color32::TRANSPARENT),
+                    );
+                }
+
+                for ele in &mut self.state.annotation.images.iter_mut() {
+                    let rect = egui::Rect::from_min_size(egui::pos2(x, ele.y), size);
+                    ui.put(
+                        rect,
+                        egui::Image::new(format!("file://{}", ele.path.display())),
+                    );
+                }
+
                 // Use rect to contain the image, which is easy to control the position.
-                let rect = egui::Rect::from_min_size(egui::pos2(x, y), size);
-                ui.put(
-                    rect,
-                    egui::Image::new(format!(
-                        "file://{}",
-                        self.state.path.with_file_name("1.png").display()
-                    )),
-                );
             });
 
         // text area
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::GRAY))
             .show_inside(ui, |ui| {
-                let text_edit = (egui::TextEdit::multiline(&mut self.state.content)
+                let text_edit = (TextEdit::multiline(&mut self.state.content)
                     .desired_width(f32::INFINITY)
-                    .desired_rows(50)
+                    .desired_rows(usize::MAX)
                     .background_color(egui::Color32::WHITE))
                 .hint_text("Type something!")
                 .layouter(&mut |ui, string, wrap_width| {
@@ -363,7 +381,7 @@ impl eframe::App for MyApp {
                     let mut own_galley = (*galley).clone();
 
                     //load highlight
-                    for (config, highlights) in &self.state.text_area.highlights {
+                    for (config, highlights) in &self.state.annotation.highlights {
                         let mut fragements = vec![];
                         for highlight in highlights {
                             fragements.push(egui::text::CCursorRange::two(
@@ -378,9 +396,25 @@ impl eframe::App for MyApp {
                 })
                 .show(ui);
                 let galley = text_edit.galley;
-                //test
-                self.state.index_pos = galley.pos_from_cursor(CCursor::new(100)).right_top().y;
-                add_highlight_specify(&mut self.state, HlConfig::Blue, 100, 101);
+
+                //track the positions
+                self.state.annotation.images.iter_mut().for_each(|image| {
+                    image.y = galley
+                        .pos_from_cursor(CCursor::new(image.index))
+                        .right_top()
+                        .y;
+                });
+
+                self.state
+                    .annotation
+                    .bookmarks
+                    .iter_mut()
+                    .for_each(|bookmark| {
+                        bookmark.y = galley
+                            .pos_from_cursor(CCursor::new(bookmark.index))
+                            .right_top()
+                            .y;
+                    });
                 if let Some(cursor_range) = text_edit.cursor_range {
                     if !cursor_range.is_empty() {
                         self.state.text_area.selected_range = cursor_range;
@@ -390,40 +424,41 @@ impl eframe::App for MyApp {
 
                         egui::Area::new(egui::Id::new("my_area"))
                             .fixed_pos(
-                                (self.state.text_area.popup_pos + egui::vec2(-10.0, -60.0))
-                                    .to_pos2(),
+                                (self.state.text_area.popup_pos + egui::vec2(0.0, -15.0)).to_pos2(),
                             )
                             .order(egui::Order::Foreground)
                             .show(ui, |ui| {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     ui.horizontal(|ui| {
-                                        if ui.button("Copy").clicked() {
-                                            let text = get_text(cursor_range, &galley);
-                                            let mut clipboard =
-                                                arboard::Clipboard::new().expect("");
-                                            match clipboard.set_text(text) {
-                                                Ok(_) => println!("成功复制到剪贴板！"),
-                                                Err(e) => eprintln!("复制失败: {}", e),
-                                            };
-                                        }
-                                        if ui.button("Cut").clicked() {
-                                            let text = get_text(cursor_range, &galley);
-                                            let mut clipboard =
-                                                arboard::Clipboard::new().expect("");
-                                            match clipboard.set_text(text) {
-                                                Ok(_) => println!("成功复制到剪贴板！"),
-                                                Err(e) => eprintln!("复制失败: {}", e),
-                                            };
-                                            delete_selected_text(
-                                                &mut self.state.content,
-                                                cursor_range,
-                                            );
-                                        }
-                                        if ui.button("Pastle").clicked() {}
+                                        // if ui.button("Copy").clicked() {
+                                        //     let text = get_text(cursor_range, &galley);
+                                        //     let mut clipboard =
+                                        //         arboard::Clipboard::new().expect("");
+                                        //     match clipboard.set_text(text) {
+                                        //         Ok(_) => println!("成功复制到剪贴板！"),
+                                        //         Err(e) => eprintln!("复制失败: {}", e),
+                                        //     };
+                                        // }
+                                        // if ui.button("Cut").clicked() {
+                                        //     let text = get_text(cursor_range, &galley);
+                                        //     let mut clipboard =
+                                        //         arboard::Clipboard::new().expect("");
+                                        //     match clipboard.set_text(text) {
+                                        //         Ok(_) => println!("成功复制到剪贴板！"),
+                                        //         Err(e) => eprintln!("复制失败: {}", e),
+                                        //     };
+                                        //     delete_selected_text(
+                                        //         &mut self.state.content,
+                                        //         cursor_range,
+                                        //     );
+                                        // }
+                                        // if ui.button("Pastle").clicked() {}
                                         if ui.button("Highlight").clicked() {
                                             add_highlight(&mut self.state, HlConfig::Blue);
                                         }
-                                        if ui.button("Mark").clicked() {}
+                                        if ui.button("Bookmark").clicked() {}
+                                        if ui.button("Image").clicked() {}
+                                        if ui.button("Underline").clicked() {}
                                     });
                                 });
                             });

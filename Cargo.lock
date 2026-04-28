@@ -5096,10 +5096,12 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "words"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
  "arboard",
  "eframe",
  "egui",
  "egui_extras",
+ "emath",
  "env_logger",
  "epaint",
  "image 0.24.9",

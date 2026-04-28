@@ -1,7 +1,8 @@
 use crate::egui::text::CCursorRange;
+use eframe::wgpu::ContextBlasBuildEntry;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum HlConfig {
@@ -21,7 +22,6 @@ impl HlConfig {
 pub struct TextArea {
     pub popup_pos: egui::Vec2,
     pub font_size: f32,
-    pub highlights: HashMap<HlConfig, Vec<Highlight>>,
     pub selected_range: CCursorRange,
 }
 
@@ -47,10 +47,54 @@ impl Highlight {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct BookMark {
+    pub index: usize,
+    content: String,
+    pub y: f32,
+}
+
+impl BookMark {
+    pub fn new(index: usize, content: String) -> Self {
+        Self {
+            index: index,
+            content: content,
+            y: 0.0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Image {
+    pub index: usize,
+    pub path: PathBuf,
+    pub y: f32,
+}
+
+impl Image {
+    pub fn new(index: usize, path: PathBuf) -> Self {
+        Self {
+            index: index,
+            path: path,
+            y: 0.0,
+        }
+    }
+    pub fn set_y(self: &mut Self, y: f32) {
+        self.y = y;
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Annotation {
+    pub bookmarks: Vec<BookMark>,
+    pub images: Vec<Image>,
+    pub highlights: HashMap<HlConfig, Vec<Highlight>>,
+}
+
 pub struct State {
     pub path: PathBuf,
     pub content: String,
     pub changed: bool,
     pub text_area: TextArea,
-    pub index_pos: f32,
+    pub annotation: Annotation,
 }
