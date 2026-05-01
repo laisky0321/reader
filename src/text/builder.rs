@@ -6,14 +6,16 @@ use epaint::text::{Galley, LayoutJob, TextWrapMode, cursor::CCursor};
 use egui::{
     Align, Align2, Atom, AtomExt as _, AtomKind, AtomLayout, Atoms, Color32, Context, CursorIcon,
     Event, EventFilter, FontSelection, Frame, Id, ImeEvent, IntoAtoms, IntoSizedResult, Key,
-    KeyboardShortcut, Margin, Modifiers, NumExt as _, Response, Sense, SizedAtomKind, TextBuffer,
-    TextStyle, Ui, Vec2, Widget, WidgetInfo, WidgetWithState, epaint,
+    KeyboardShortcut, Margin, Modifiers, NumExt as _, Response, Sense, SizedAtomKind, TextStyle,
+    Ui, Vec2, Widget, WidgetInfo, WidgetWithState, epaint,
     os::OperatingSystem,
     output::OutputEvent,
     response, text_selection,
     text_selection::{CCursorRange, text_cursor_state::cursor_rect, visuals::paint_text_selection},
     vec2,
 };
+
+use crate::text::TextBuffer;
 
 use super::{TextEditOutput, TextEditState};
 
@@ -64,32 +66,33 @@ type LayouterFn<'t> = &'t mut dyn FnMut(&Ui, &dyn TextBuffer, f32) -> Arc<Galley
 /// The background color of a [`crate::TextEdit`] is [`crate::Visuals::text_edit_bg_color`] or can be set with [`crate::TextEdit::background_color`].
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct TextEdit<'t> {
-    text: &'t mut dyn TextBuffer,
+    text: &'t mut dyn TextBuffer, //文本内容
     prefix: Atoms<'static>,
     suffix: Atoms<'static>,
-    hint_text: Atoms<'static>,
+    hint_text: Atoms<'static>, //输入提示词
     id: Option<Id>,
     id_salt: Option<Id>,
     font_selection: FontSelection,
     text_color: Option<Color32>,
     layouter: Option<LayouterFn<'t>>,
-    password: bool,
+    password: bool, //是否是密码
     frame: Option<Frame>,
     margin: Margin,
-    multiline: bool,
-    interactive: bool,
+    multiline: bool,   //是否是多行
+    interactive: bool, //是否可以交互
     desired_width: Option<f32>,
     desired_height_rows: usize,
     event_filter: EventFilter,
     cursor_at_end: bool,
-    min_size: Vec2,
-    align: Align2,
+    min_size: Vec2, //
+    align: Align2,  //对齐方式
     clip_text: bool,
     char_limit: usize,
     return_key: Option<KeyboardShortcut>,
-    background_color: Option<Color32>,
+    background_color: Option<Color32>, //渲染背景色
 }
 
+//egui组件状态
 impl WidgetWithState for TextEdit<'_> {
     type State = TextEditState;
 }
@@ -931,7 +934,6 @@ impl TextEdit<'_> {
             TSTransform::from_translation(galley_pos.to_vec2()),
             &galley,
         );
-
         TextEditOutput {
             response,
             galley,

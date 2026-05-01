@@ -1,0 +1,10 @@
+[
+  {
+    "label": "Rust Debug (Build & Debug)",
+    "command": "cargo build && lldb ./target/debug/你的项目名",
+    "description": "编译并启动 LLDB 调试器",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+  },
+]

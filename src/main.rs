@@ -2,13 +2,16 @@
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
 use crate::egui::text::CCursorRange;
-use crate::state::{Annotation, BookMark, Highlight, HlConfig, Image, State, TextArea};
+use crate::state::{
+    Annotation, BookMark, Highlight, HlConfig, Image, State, StringWithAnnotation, TextArea,
+    TextChange,
+};
 use eframe::egui;
-use egui::FontData;
-use egui::FontDefinitions;
 use egui::FontFamily;
 use egui::Galley;
 use egui::text::CCursor;
+use egui::{Button, FontDefinitions};
+use egui::{FontData, Vec2};
 use egui::{Rect, pos2};
 use rfd;
 use serde_json;
@@ -16,6 +19,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::task::Context;
 use std::{fs, vec};
 
 pub mod state;
@@ -73,6 +77,26 @@ fn save(state: &State) {
     fs::write(&state.path.with_extension("json"), json).unwrap();
 }
 
+fn add_bookmark(state: &mut State) {
+    let index = state.annotation.bookmarks.len() + 1;
+    state.annotation.bookmarks.push(BookMark::new(
+        state.text_area.selected_range.primary.index,
+        String::from(""),
+        index,
+    ));
+    state.focus_id = index;
+}
+
+fn add_image(state: &mut State) {
+    if let Some(path) = rfd::FileDialog::new().pick_file() {
+        state.annotation.images.push(Image::new(
+            state.text_area.selected_range.primary.index,
+            path,
+            state.annotation.images.len() + 1,
+        ))
+    }
+}
+
 fn add_highlight(state: &mut State, config: HlConfig) {
     let start = state.text_area.selected_range.primary.index;
     let end = state.text_area.selected_range.secondary.index;
@@ -81,7 +105,7 @@ fn add_highlight(state: &mut State, config: HlConfig) {
         .highlights
         .entry(config)
         .or_insert_with(Vec::new)
-        .push(Highlight::new(start, end));
+        .push(Highlight::new(start, end, 0));
 }
 
 fn add_highlight_specify(state: &mut State, config: HlConfig, start: usize, end: usize) {
@@ -90,7 +114,7 @@ fn add_highlight_specify(state: &mut State, config: HlConfig, start: usize, end:
         .highlights
         .entry(config)
         .or_insert_with(Vec::new)
-        .push(Highlight::new(start, end));
+        .push(Highlight::new(start, end, 0));
 }
 
 fn galley_paint(fragements: Vec<CCursorRange>, own_galley: &mut Galley, config: HlConfig) {
@@ -234,16 +258,23 @@ impl Default for MyApp {
                     selected_range: CCursorRange::two(CCursor::new(0), CCursor::new(0)),
                 },
                 annotation: Annotation {
-                    bookmarks: vec![BookMark::new(30, "this is a bookmark".to_owned())],
+                    bookmarks: vec![BookMark::new(30, "this is a bookmark".to_owned(), 1)],
                     images: vec![Image::new(
-                        140,
+                        1,
                         PathBuf::from_str(
                             "/home/lai/nextcloud/code/rust_practice/reader/text/1.png",
                         )
                         .unwrap(),
+                        1,
                     )],
                     highlights: HashMap::from([(HlConfig::Blue, vec![])]),
                 },
+                text_change: TextChange {
+                    change_index: 0,
+                    change_range: 0,
+                    index: 0,
+                },
+                focus_id: 0,
             },
         }
     }
@@ -282,6 +313,14 @@ impl eframe::App for MyApp {
                             }
                             if *key == egui::Key::Y {
                                 add_highlight(&mut self.state, HlConfig::Yellow);
+                                return false;
+                            }
+                            if *key == egui::Key::I {
+                                add_image(&mut self.state);
+                                return false;
+                            }
+                            if *key == egui::Key::B {
+                                add_bookmark(&mut self.state);
                                 return false;
                             }
                         }
@@ -340,13 +379,20 @@ impl eframe::App for MyApp {
             .show_inside(ui, |ui| {
                 let x = ui.max_rect().min.x;
                 let size = egui::vec2(150.0, 100.0);
-                for ele in &mut self.state.annotation.bookmarks.iter() {
+                for ele in &mut self.state.annotation.bookmarks.iter_mut() {
                     let text_rect = egui::Rect::from_min_size(egui::pos2(x, ele.y), size);
-                    ui.put(
-                        text_rect,
-                        TextEdit::multiline(&mut "this is bookmark".to_owned())
-                            .background_color(egui::Color32::TRANSPARENT),
-                    );
+
+                    ui.put(text_rect, |ui: &mut egui::Ui| {
+                        let text_area = ui.add(
+                            TextEdit::multiline(&mut ele.content)
+                                .background_color(egui::Color32::TRANSPARENT),
+                        );
+                        if self.state.focus_id == ele.id {
+                            text_area.request_focus();
+                            self.state.focus_id = 0;
+                        }
+                        text_area
+                    });
                 }
 
                 for ele in &mut self.state.annotation.images.iter_mut() {
@@ -364,106 +410,190 @@ impl eframe::App for MyApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::GRAY))
             .show_inside(ui, |ui| {
-                let text_edit = (TextEdit::multiline(&mut self.state.content)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(usize::MAX)
-                    .background_color(egui::Color32::WHITE))
-                .hint_text("Type something!")
-                .layouter(&mut |ui, string, wrap_width| {
-                    let layout_job = egui::text::LayoutJob::simple(
-                        string.as_str().to_string(),
-                        egui::FontId::monospace(self.state.text_area.font_size),
-                        egui::Color32::BLACK,
-                        wrap_width,
-                    );
+                egui::ScrollArea::vertical()
+                    .wheel_scroll_multiplier(Vec2::new(7.0, 7.0))
+                    .show(ui, |ui| {
+                        let text_edit = (TextEdit::multiline(&mut StringWithAnnotation {
+                            text: &mut self.state.content,
+                            changes: self.state.text_change,
+                        })
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(100)
+                        .background_color(egui::Color32::WHITE))
+                        .hint_text("Type something!")
+                        .layouter(&mut |ui, string, wrap_width| {
+                            let layout_job = egui::text::LayoutJob::simple(
+                                string.as_str().to_string(),
+                                egui::FontId::monospace(self.state.text_area.font_size),
+                                egui::Color32::BLACK,
+                                wrap_width,
+                            );
 
-                    let galley = ui.fonts_mut(|f| f.layout_job(layout_job));
-                    let mut own_galley = (*galley).clone();
+                            //modify the positons
+                            if self.state.text_change.index != string.changes().unwrap().index {
+                                self.state.text_change = string.changes().unwrap();
+                                let index = self.state.text_change.change_index;
+                                let range = self.state.text_change.change_range;
+                                let end_index = (index as i32 + range) as usize;
+                                self.state
+                                    .annotation
+                                    .highlights
+                                    .iter_mut()
+                                    .for_each(|(_, ele)| {
+                                        ele.iter_mut().for_each(|f| {
+                                            if range > 0 {
+                                                if index < f.start {
+                                                    f.start = (f.start as i32 + range) as usize;
+                                                    f.end = (f.end as i32 + range) as usize;
+                                                } else if index < f.end {
+                                                    f.end = (f.end as i32 + range) as usize;
+                                                }
+                                            } else {
+                                                //如果是删除
 
-                    //load highlight
-                    for (config, highlights) in &self.state.annotation.highlights {
-                        let mut fragements = vec![];
-                        for highlight in highlights {
-                            fragements.push(egui::text::CCursorRange::two(
-                                egui::text::CCursor::new(highlight.start),
-                                egui::text::CCursor::new(highlight.end),
-                            ));
-                        }
-                        galley_paint(fragements, &mut own_galley, *config);
-                    }
-
-                    Arc::new(own_galley)
-                })
-                .show(ui);
-                let galley = text_edit.galley;
-
-                //track the positions
-                self.state.annotation.images.iter_mut().for_each(|image| {
-                    image.y = galley
-                        .pos_from_cursor(CCursor::new(image.index))
-                        .right_top()
-                        .y;
-                });
-
-                self.state
-                    .annotation
-                    .bookmarks
-                    .iter_mut()
-                    .for_each(|bookmark| {
-                        bookmark.y = galley
-                            .pos_from_cursor(CCursor::new(bookmark.index))
-                            .right_top()
-                            .y;
-                    });
-                if let Some(cursor_range) = text_edit.cursor_range {
-                    if !cursor_range.is_empty() {
-                        self.state.text_area.selected_range = cursor_range;
-                        let rect = galley.pos_from_cursor(cursor_range.primary);
-                        let screen_pos = rect.right_top().to_vec2();
-                        self.state.text_area.popup_pos = screen_pos;
-
-                        egui::Area::new(egui::Id::new("my_area"))
-                            .fixed_pos(
-                                (self.state.text_area.popup_pos + egui::vec2(0.0, -15.0)).to_pos2(),
-                            )
-                            .order(egui::Order::Foreground)
-                            .show(ui, |ui| {
-                                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        // if ui.button("Copy").clicked() {
-                                        //     let text = get_text(cursor_range, &galley);
-                                        //     let mut clipboard =
-                                        //         arboard::Clipboard::new().expect("");
-                                        //     match clipboard.set_text(text) {
-                                        //         Ok(_) => println!("成功复制到剪贴板！"),
-                                        //         Err(e) => eprintln!("复制失败: {}", e),
-                                        //     };
-                                        // }
-                                        // if ui.button("Cut").clicked() {
-                                        //     let text = get_text(cursor_range, &galley);
-                                        //     let mut clipboard =
-                                        //         arboard::Clipboard::new().expect("");
-                                        //     match clipboard.set_text(text) {
-                                        //         Ok(_) => println!("成功复制到剪贴板！"),
-                                        //         Err(e) => eprintln!("复制失败: {}", e),
-                                        //     };
-                                        //     delete_selected_text(
-                                        //         &mut self.state.content,
-                                        //         cursor_range,
-                                        //     );
-                                        // }
-                                        // if ui.button("Pastle").clicked() {}
-                                        if ui.button("Highlight").clicked() {
-                                            add_highlight(&mut self.state, HlConfig::Blue);
-                                        }
-                                        if ui.button("Bookmark").clicked() {}
-                                        if ui.button("Image").clicked() {}
-                                        if ui.button("Underline").clicked() {}
+                                                if index < f.start {
+                                                    f.start = (f.start as i32 + range) as usize;
+                                                    f.end = (f.end as i32 + range) as usize;
+                                                };
+                                                if index > f.start {
+                                                    if index < f.end && end_index < f.start {
+                                                        f.start = end_index as usize;
+                                                        f.end = (f.end as i32 + range) as usize;
+                                                    } else if index < f.end && end_index > f.start {
+                                                        f.end = (f.end as i32 + range) as usize;
+                                                    }
+                                                };
+                                            }
+                                        });
                                     });
+                                self.state.annotation.bookmarks.iter_mut().for_each(|f| {
+                                    if range > 0 {
+                                        if range > 0 {
+                                            if end_index < f.index {
+                                                f.index = f.index + range as usize;
+                                            }
+                                        } else {
+                                            if index > f.index && end_index < f.index {
+                                                f.index = index
+                                            } else if index < f.index {
+                                                f.index = f.index + range as usize
+                                            }
+                                        }
+                                    }
                                 });
+                                self.state.annotation.images.iter_mut().for_each(|f| {
+                                    if range > 0 {
+                                        if range > 0 {
+                                            if end_index < f.index {
+                                                f.index = f.index + range as usize;
+                                            }
+                                        } else {
+                                            if index > f.index && end_index < f.index {
+                                                f.index = index
+                                            } else if index < f.index {
+                                                f.index = f.index + range as usize
+                                            }
+                                        }
+                                    }
+                                });
+                            };
+
+                            let galley = ui.fonts_mut(|f| f.layout_job(layout_job));
+                            let mut own_galley = (*galley).clone();
+
+                            //load highlight
+                            for (config, highlights) in &self.state.annotation.highlights {
+                                let mut fragements = vec![];
+                                for highlight in highlights {
+                                    fragements.push(egui::text::CCursorRange::two(
+                                        egui::text::CCursor::new(highlight.start),
+                                        egui::text::CCursor::new(highlight.end),
+                                    ));
+                                }
+                                galley_paint(fragements, &mut own_galley, *config);
+                            }
+
+                            Arc::new(own_galley)
+                        })
+                        .show(ui);
+                        let galley = text_edit.galley;
+                        let text_draw_y = text_edit.galley_pos.y;
+                        //track the positions
+
+                        self.state.annotation.images.iter_mut().for_each(|image| {
+                            image.y = text_draw_y
+                                + galley
+                                    .pos_from_cursor(CCursor::new(image.index))
+                                    .right_top()
+                                    .y;
+                        });
+                        // add_highlight_specify(&mut self.state, HlConfig::Yellow, 30, 31);
+                        self.state
+                            .annotation
+                            .bookmarks
+                            .iter_mut()
+                            .for_each(|bookmark| {
+                                bookmark.y = text_draw_y
+                                    + galley
+                                        .pos_from_cursor(CCursor::new(bookmark.index))
+                                        .right_top()
+                                        .y;
                             });
-                    }
-                }
+                        if let Some(cursor_range) = text_edit.cursor_range {
+                            if !cursor_range.is_empty() {
+                                self.state.text_area.selected_range = cursor_range;
+                                let rect = galley.pos_from_cursor(cursor_range.primary);
+                                let screen_pos = rect.right_top().to_vec2();
+                                self.state.text_area.popup_pos = screen_pos;
+
+                                egui::Area::new(egui::Id::new("marks"))
+                                    .fixed_pos(
+                                        (self.state.text_area.popup_pos + egui::vec2(0.0, -15.0))
+                                            .to_pos2(),
+                                    )
+                                    .order(egui::Order::Foreground)
+                                    .show(ui, |ui| {
+                                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                // if ui.button("Copy").clicked() {
+                                                //     let text = get_text(cursor_range, &galley);
+                                                //     let mut clipboard =
+                                                //         arboard::Clipboard::new().expect("");
+                                                //     match clipboard.set_text(text) {
+                                                //         Ok(_) => println!("成功复制到剪贴板！"),
+                                                //         Err(e) => eprintln!("复制失败: {}", e),
+                                                //     };
+                                                // }
+                                                // if ui.button("Cut").clicked() {
+                                                //     let text = get_text(cursor_range, &galley);
+                                                //     let mut clipboard =
+                                                //         arboard::Clipboard::new().expect("");
+                                                //     match clipboard.set_text(text) {
+                                                //         Ok(_) => println!("成功复制到剪贴板！"),
+                                                //         Err(e) => eprintln!("复制失败: {}", e),
+                                                //     };
+                                                //     delete_selected_text(
+                                                //         &mut self.state.content,
+                                                //         cursor_range,
+                                                //     );
+                                                // }
+                                                // if ui.button("Pastle").clicked() {}
+                                                if ui.button("Highlight").clicked() {
+                                                    add_highlight(&mut self.state, HlConfig::Blue);
+                                                }
+                                                if ui.button("Bookmark").clicked() {
+                                                    add_bookmark(&mut self.state);
+                                                }
+                                                if ui.button("Image").clicked() {
+                                                    add_image(&mut self.state)
+                                                }
+                                                if ui.button("Underline").clicked() {}
+                                            });
+                                        });
+                                    });
+                            }
+                        }
+                    });
             });
     }
 }

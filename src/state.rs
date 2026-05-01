@@ -1,5 +1,4 @@
 use crate::egui::text::CCursorRange;
-use eframe::wgpu::ContextBlasBuildEntry;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -25,23 +24,26 @@ pub struct TextArea {
     pub selected_range: CCursorRange,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct Highlight {
     pub start: usize,
     pub end: usize,
+    pub id: usize,
 }
 
 impl Highlight {
-    pub fn new(start: usize, end: usize) -> Self {
+    pub fn new(start: usize, end: usize, id: usize) -> Self {
         if start > end {
             Self {
                 start: end,
                 end: start,
+                id: id,
             }
         } else {
             Self {
                 start: start,
                 end: end,
+                id: id,
             }
         }
     }
@@ -49,14 +51,16 @@ impl Highlight {
 
 #[derive(Serialize, Deserialize)]
 pub struct BookMark {
+    pub id: usize,
     pub index: usize,
-    content: String,
+    pub content: String,
     pub y: f32,
 }
 
 impl BookMark {
-    pub fn new(index: usize, content: String) -> Self {
+    pub fn new(index: usize, content: String, id: usize) -> Self {
         Self {
+            id: id,
             index: index,
             content: content,
             y: 0.0,
@@ -66,14 +70,16 @@ impl BookMark {
 
 #[derive(Serialize, Deserialize)]
 pub struct Image {
+    pub id: usize,
     pub index: usize,
     pub path: PathBuf,
     pub y: f32,
 }
 
 impl Image {
-    pub fn new(index: usize, path: PathBuf) -> Self {
+    pub fn new(index: usize, path: PathBuf, id: usize) -> Self {
         Self {
+            id: id,
             index: index,
             path: path,
             y: 0.0,
@@ -91,10 +97,30 @@ pub struct Annotation {
     pub highlights: HashMap<HlConfig, Vec<Highlight>>,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct TextChange {
+    pub change_index: usize,
+    pub change_range: i32,
+    pub index: usize,
+}
+
+pub struct StringWithAnnotation<'a> {
+    pub text: &'a mut String,
+    pub changes: TextChange,
+}
+
+impl<'a> StringWithAnnotation<'a> {
+    fn highlights(&self) -> Option<&HashMap<HlConfig, Vec<Highlight>>> {
+        None
+    }
+}
+
 pub struct State {
     pub path: PathBuf,
     pub content: String,
     pub changed: bool,
     pub text_area: TextArea,
     pub annotation: Annotation,
+    pub text_change: TextChange,
+    pub focus_id: usize,
 }

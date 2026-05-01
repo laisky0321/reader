@@ -1,14 +1,15 @@
 {
   "bookmarks": [
     {
-      "index": 46,
+      "id": 1,
+      "index": 30,
       "content": "this is a bookmark",
       "y": 0.0
     }
   ],
   "images": [
     {
-      "index": 100,
+      "index": 1,
       "path": "/home/lai/nextcloud/code/rust_practice/reader/text/1.png",
       "y": 0.0
     }

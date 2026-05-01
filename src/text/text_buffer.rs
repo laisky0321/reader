@@ -1,3 +1,4 @@
+use crate::state::TextChange;
 use std::{borrow::Cow, ops::Range};
 
 use epaint::{
@@ -209,6 +210,9 @@ pub trait TextBuffer {
     /// }
     /// ```
     fn type_id(&self) -> std::any::TypeId;
+    fn changes(&self) -> Option<TextChange> {
+        None
+    }
 }
 
 impl TextBuffer for String {
@@ -313,5 +317,70 @@ impl TextBuffer for &str {
 
     fn type_id(&self) -> std::any::TypeId {
         std::any::TypeId::of::<&str>()
+    }
+}
+
+pub use crate::state::StringWithAnnotation;
+
+impl<'a> TextBuffer for StringWithAnnotation<'a> {
+    fn is_mutable(&self) -> bool {
+        true
+    }
+
+    fn as_str(&self) -> &str {
+        self.text.as_ref()
+    }
+
+    fn insert_text(&mut self, text: &str, char_index: usize) -> usize {
+        // Get the byte index from the character index
+        let byte_idx = byte_index_from_char_index(self.as_str(), char_index);
+
+        // Then insert the string
+        println!("call insert text");
+        self.text.insert_str(byte_idx, text);
+        self.changes = crate::state::TextChange {
+            change_index: char_index,
+            change_range: text.len() as i32,
+            index: self.changes.index + 1,
+        };
+        text.chars().count()
+    }
+
+    fn delete_char_range(&mut self, char_range: Range<usize>) {
+        assert!(
+            char_range.start <= char_range.end,
+            "start must be <= end, but got {char_range:?}"
+        );
+
+        // Get both byte indices
+        let byte_start = byte_index_from_char_index(&self.text.as_str(), char_range.start);
+        let byte_end = byte_index_from_char_index(&self.text.as_str(), char_range.end);
+        self.changes = crate::state::TextChange {
+            change_index: char_range.end,
+            change_range: char_range.start as i32 - char_range.end as i32,
+            index: self.changes.index + 1,
+        };
+        // Then drain all characters within this range
+        self.text.drain(byte_start..byte_end);
+    }
+
+    fn clear(&mut self) {
+        self.text.clear();
+    }
+
+    fn replace_with(&mut self, text: &str) {
+        self.clear();
+        self.insert_text(text, 0);
+    }
+
+    fn take(&mut self) -> String {
+        std::mem::take(&mut self.text)
+    }
+
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<StringWithAnnotation>()
+    }
+    fn changes(&self) -> Option<TextChange> {
+        Some(self.changes)
     }
 }
